@@ -1,0 +1,7 @@
+{
+ "config": "agent",
+ "task": "task_id",
+ "seed": "run",
+ "success": "solved",
+ "cost": "usd"
+}

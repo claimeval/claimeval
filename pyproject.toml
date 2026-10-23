@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claimeval"
+version = "1.0.0"
+description = "Uncertainty for cost-accuracy claims about AI agents: test whether a leaderboard or paper claim is supported by its own data."
+readme = "README.md"
+authors = [{name = "Harish Mashetty", email = "harish.mashetty@gmail.com"}]
+keywords = ["evaluation", "llm", "agents", "leaderboard", "bootstrap", "pareto", "statistics"]
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.scripts]
+claimeval = "claimeval.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["claimeval*"]
+
+[project.urls]
+Homepage = "https://github.com/claimeval/claimeval"
+Documentation = "https://github.com/claimeval/claimeval#readme"
+Repository = "https://github.com/claimeval/claimeval"
+"Issue Tracker" = "https://github.com/claimeval/claimeval/issues"

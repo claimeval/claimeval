@@ -1,0 +1,40 @@
+[
+ {
+  "id": "c1",
+  "kind": "top1",
+  "subject": "agent-E",
+  "comparators": [
+   "agent-D",
+   "agent-C",
+   "agent-B",
+   "agent-A"
+  ]
+ },
+ {
+  "id": "c2",
+  "kind": "pairwise",
+  "subject": "agent-D",
+  "comparators": [
+   "agent-C"
+  ]
+ },
+ {
+  "id": "c3",
+  "kind": "cost_dominance",
+  "subject": "agent-D",
+  "comparators": [
+   "agent-B"
+  ]
+ },
+ {
+  "id": "c4",
+  "kind": "frontier",
+  "subject": "agent-A",
+  "comparators": [
+   "agent-B",
+   "agent-C",
+   "agent-D",
+   "agent-E"
+  ]
+ }
+]
