@@ -127,6 +127,7 @@ def tau2(files, use_user_cost: bool = False) -> tuple[RolloutSet, dict]:
         if not sims:
             skipped[name] = "no simulations in file"
             continue
+        file_rolls = []
         costs = []
         for s in sims:
             rew = (s.get("reward_info") or {}).get("reward")
@@ -134,9 +135,14 @@ def tau2(files, use_user_cost: bool = False) -> tuple[RolloutSet, dict]:
                 continue
             c = (s.get("agent_cost") or 0.0) + (s.get("user_cost") or 0.0 if use_user_cost else 0.0)
             costs.append(c)
-            rolls.append(Rollout(name, str(s.get("task_id")), str(s.get("trial")), float(rew), float(c)))
-        if costs and max(costs) == 0:
+            file_rolls.append(Rollout(name, str(s.get("task_id")), str(s.get("trial")), float(rew), float(c)))
+        if costs and all(c == 0 for c in costs):
             skipped[name] = "cost not logged (zero on every trial); accuracy only"
+            # Keep the scores, but prevent the zero sentinel from entering
+            # cost estimates and masquerading as a free system.
+            file_rolls = [Rollout(r.config, r.task, r.seed, r.success, float("nan"), r.group)
+                          for r in file_rolls]
+        rolls.extend(file_rolls)
     if not rolls:
         raise ValueError("no scored simulations in the given files")
     return RolloutSet(rolls), skipped

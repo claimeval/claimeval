@@ -22,10 +22,26 @@ class Rollout:
     task: str
     seed: str  # anything distinguishing repeat runs of the same (config, task)
     success: float  # 1.0/0.0, or a continuous score in [0, 1]
-    cost: float  # USD, or any positive resource measure (see cost_field in ingest)
+    cost: float  # USD or another nonnegative resource measure; NaN means unavailable
     group: str = ""  # cluster the task belongs to: repo, domain, source dataset
 
     def __post_init__(self):
+        try:
+            success = float(self.success)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("success must be a finite number in [0, 1]") from exc
+        if not np.isfinite(success) or not 0.0 <= success <= 1.0:
+            raise ValueError(f"success must be a finite number in [0, 1], got {self.success!r}")
+
+        try:
+            cost = float(self.cost)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("cost must be nonnegative or NaN when unavailable") from exc
+        # NaN is used by adapters for unreported costs. Zero is retained for
+        # source formats that use it as a missing-cost sentinel.
+        if np.isinf(cost) or cost < 0:
+            raise ValueError(f"cost must be nonnegative or NaN when unavailable, got {self.cost!r}")
+
         # no group given -> each task is its own cluster, and group-level
         # resampling degenerates to task-level resampling
         if not self.group:
@@ -35,9 +51,10 @@ class Rollout:
 class RolloutSet:
     """Dense, NaN-padded view over rollouts: (n_config, n_task, max_seeds).
 
-    The padding matters. Real agent evaluations are ragged — configs crash on
-    some tasks, reruns are uneven — and silently dropping those cells biases
-    accuracy upward for exactly the configs that crash most.
+    The padding matters. A missing config/task cell is scored as a failed task
+    for accuracy, while its cost remains unavailable. This avoids rewarding a
+    config for omitted or crashed tasks. Cost comparisons require full cost
+    coverage because missing cost cannot be imputed safely.
     """
 
     def __init__(self, rollouts: Iterable[Rollout]):
@@ -93,6 +110,11 @@ class RolloutSet:
             self.success[c, t, : len(vals)] = arr[:, 0]
             self.cost[c, t, : len(vals)] = arr[:, 1]
 
+        # Preserve the distinction between an unobserved cell and an observed
+        # one in counts/coverage, but count it as failure in accuracy metrics.
+        missing_c, missing_t = np.where(self.counts == 0)
+        self.success[missing_c, missing_t, 0] = 0.0
+
         if np.any(self.cost[~np.isnan(self.cost)] < 0):
             raise ValueError("negative costs")
 
@@ -120,6 +142,21 @@ class RolloutSet:
         cross-config comparison unbalanced and should be reported, not hidden."""
         return (self.counts > 0).mean(axis=1)
 
+    def has_complete_cost(self, configs: Sequence[str] | None = None) -> bool:
+        """Whether each selected config has a finite cost on every task/run."""
+        selected = self.configs if configs is None else configs
+        ci = {name: i for i, name in enumerate(self.configs)}
+        for name in selected:
+            if name not in ci:
+                raise KeyError(f"unknown config {name!r}")
+            c = ci[name]
+            if np.any(self.counts[c] == 0):
+                return False
+            for t, n in enumerate(self.counts[c]):
+                if not np.isfinite(self.cost[c, t, : int(n)]).all():
+                    return False
+        return True
+
     def seeds_per_cell(self) -> np.ndarray:
         """Median seeds per non-empty cell, per config."""
         out = np.zeros(self.n_configs)
@@ -133,9 +170,9 @@ class RolloutSet:
     def point_estimates(self, cost_stat: str = "median") -> tuple[np.ndarray, np.ndarray]:
         """(accuracy, cost) per config: aggregate over seeds, then over tasks.
 
-        Mean-of-task-means, not mean-of-all-rollouts. With a ragged design the
-        two differ, and only the former estimates "performance on a task drawn
-        from the suite" — which is the estimand the frontier is about.
+        Mean-of-task-means, not mean-of-all-rollouts. Missing config/task cells
+        count as failures for accuracy. Cost aggregates use available task
+        costs; use `has_complete_cost` before making cost or frontier claims.
 
         `cost_stat` controls only the across-task step. The default is
         "median" because mean cost is not always a well-defined estimand: when
@@ -170,6 +207,11 @@ class RolloutSet:
             for t in range(self.n_tasks):
                 n = int(self.counts[c, t])
                 if n == 0:
+                    out.append(Rollout(
+                        config=self.configs[c], task=self.tasks[t], seed="missing-failure",
+                        success=0.0, cost=float("nan"),
+                        group=self.groups[self.task_group[t]],
+                    ))
                     continue
                 pick = rng.permutation(n)[: min(k, n)]
                 for s in pick:

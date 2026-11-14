@@ -1,8 +1,9 @@
 """claimeval -- test the claims made about AI agents against the data behind them.
 
 A claim ("#1", "beats X", "as good at lower cost", "on the cost-accuracy
-frontier") gets the probability that it holds, from a bootstrap over the right
-unit (tasks, or clusters such as repositories), and a verdict. Input is a
+frontier") gets a bootstrap support proportion: the fraction of resamples in
+which it holds. This is not a posterior probability that the claim is true.
+Input is a
 stream of (config, task, seed, success, cost[, group]) runs from any harness,
 or a public leaderboard release read by `claimeval.core.adapters`. Also: frontier
 membership and dominance probabilities, a Hausdorff frontier band, a
@@ -11,6 +12,7 @@ variance decomposition.
 """
 
 import sys
+from importlib import import_module
 
 # Subpackages
 from . import core
@@ -49,13 +51,13 @@ sys.modules["claimeval.bias"] = stats.bias
 sys.modules["claimeval.cost_axis"] = stats.cost_axis
 sys.modules["claimeval.frontier"] = stats.frontier
 sys.modules["claimeval.claims"] = analysis.claims
-sys.modules["claimeval.compare"] = analysis.compare
+sys.modules["claimeval.compare"] = import_module(".analysis.compare", __name__)
 sys.modules["claimeval.baselines"] = analysis.baselines
 sys.modules["claimeval.report"] = analysis.report
-sys.modules["claimeval.simulate"] = sim.simulate
-sys.modules["claimeval.coverage"] = sim.coverage
+sys.modules["claimeval.simulate"] = import_module(".sim.simulate", __name__)
+sys.modules["claimeval.coverage"] = import_module(".sim.coverage", __name__)
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 
 __all__ = [
     "core",

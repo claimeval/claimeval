@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claimeval"
-version = "1.0.0"
+version = "1.0.2"
 description = "Uncertainty for cost-accuracy claims about AI agents: test whether a leaderboard or paper claim is supported by its own data."
 readme = "README.md"
 authors = [{name = "Harish Mashetty", email = "harish.mashetty@gmail.com"}]

@@ -18,6 +18,8 @@ def headline(rs: RolloutSet, boot: BootstrapResult, threshold: float = 0.90) -> 
       - dominance:  "config X dominates config Y"
     A claim is *supported* if its bootstrap probability clears `threshold`.
     """
+    if not rs.has_complete_cost():
+        raise ValueError("frontier analysis requires complete finite cost coverage")
     acc, cost = rs.point_estimates()
     observed = pareto_mask(cost, acc)
     p_front = boot.frontier_prob()
@@ -164,6 +166,8 @@ def analyze(
     from claimeval.stats.bias import split_sample_debias
     from claimeval.stats.bootstrap import auto_mode, hierarchical_bootstrap
 
+    if not rs.has_complete_cost():
+        raise ValueError("frontier analysis requires complete finite cost coverage")
     rng = rng or np.random.default_rng(0)
     # auto_mode: "group" when the suite is clustered, else "task"; never
     # "both", which double-counts the within-cell component
