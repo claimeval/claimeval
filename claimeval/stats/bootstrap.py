@@ -93,12 +93,26 @@ def hierarchical_bootstrap(
     configs, which is the quantity the frontier is made of.
     """
     rng = rng or np.random.default_rng(0)
+    allowed_modes = {"both", "task", "seed", "group", "cluster", "cluster_t",
+                     "cluster_cr2", "cluster_kish"}
+    if mode not in allowed_modes:
+        raise ValueError(f"unknown bootstrap mode {mode!r}; expected one of {sorted(allowed_modes)}")
+    if n_boot <= 0:
+        raise ValueError("n_boot must be positive")
+    if cost_stat not in ("mean", "median"):
+        raise ValueError("cost_stat must be 'mean' or 'median'")
     n_c, n_t, max_s = rs.n_configs, rs.n_tasks, rs.max_seeds
     valid_tasks = None  # (B, L) mask; only needed for ragged group draws
 
     if mode == "cluster_cr2":
+        if rs.n_groups < 2:
+            raise ValueError("cluster inference requires at least two groups")
         return _cluster_cr2(rs, n_boot, rng, cost_stat)
+    if mode == "cluster" and rs.n_groups < 2:
+        raise ValueError("cluster inference requires at least two groups")
     if mode in ("cluster_t", "cluster_kish"):
+        if rs.n_groups < 2:
+            raise ValueError("cluster inference requires at least two groups")
         # intact-cluster resampling, widened for having few clusters; the Kish
         # variant takes degrees of freedom from the effective number of clusters
         b = hierarchical_bootstrap(rs, n_boot, "cluster", rng, cost_stat)
@@ -109,7 +123,7 @@ def hierarchical_bootstrap(
             g_eff = max(n.sum() ** 2 / (n ** 2).sum(), 2.0)
             k *= t_quantile(0.975, max(int(round(g_eff - 1)), 1)) / t_quantile(0.975, rs.n_groups - 1)
         return BootstrapResult(acc0 + (b.acc - acc0) * k, cost0 + (b.cost - cost0) * k,
-                               b.configs, "cluster_t")
+                               b.configs, mode)
     if mode in ("group", "cluster"):
         task_idx, valid_tasks = _group_task_indices(rs, n_boot, rng,
                                                     within=(mode == "group"))
@@ -143,9 +157,12 @@ def hierarchical_bootstrap(
                     np.clip(draws, 0, max_s - 1, out=draws)
                     s_blk = np.take_along_axis(s_blk, draws, axis=2)
                     k_blk = np.take_along_axis(k_blk, draws, axis=2)
-                    valid = arange_s[None, None, :] < counts[..., None]
-                    s_blk = np.where(valid, s_blk, np.nan)
-                    k_blk = np.where(valid, k_blk, np.nan)
+                    # A task with no rollout has a synthetic zero-success
+                    # sentinel for accuracy, but no observed cost.
+                    valid_success = arange_s[None, None, :] < np.maximum(counts, 1)[..., None]
+                    valid_cost = arange_s[None, None, :] < counts[..., None]
+                    s_blk = np.where(valid_success, s_blk, np.nan)
+                    k_blk = np.where(valid_cost, k_blk, np.nan)
 
                 acc_t = np.nanmean(s_blk, axis=2)  # (b, n_draw)
                 cost_t = np.nanmean(k_blk, axis=2)
@@ -266,7 +283,7 @@ def _cluster_cr2(rs: RolloutSet, n_boot: int, rng: np.random.Generator,
 
 def auto_mode(rs: RolloutSet) -> Mode:
     """Pick the right resampling unit: clusters if the suite has them, else tasks."""
-    return "cluster_t" if rs.is_clustered else "task"
+    return "cluster_t" if rs.is_clustered and rs.n_groups >= 2 else "task"
 
 
 def variance_decomposition(

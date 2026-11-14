@@ -45,6 +45,7 @@ MEAN_TAIL_WARN = 2.0  # across-task mean/median ratio of per-task cost
 
 def diagnose_cost_axis(rs: RolloutSet) -> dict:
     """Flag whether mean cost, median cost, or both are unreliable here."""
+    complete_cost = rs.has_complete_cost()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         logc = np.log10(np.where(rs.cost > 0, rs.cost, np.nan))
@@ -62,6 +63,11 @@ def diagnose_cost_axis(rs: RolloutSet) -> dict:
     bias_risk = disp / np.sqrt(max(seeds, 1.0))
 
     notes: list[str] = []
+    if not complete_cost:
+        notes.append(
+            "cost coverage is incomplete; mean and median cost/frontier claims "
+            "are unavailable until every config has a finite cost on every task/run."
+        )
     if bias_risk > MEDIAN_BIAS_WARN:
         notes.append(
             f"median cost is likely biased: within-cell log10 cost dispersion "
@@ -75,14 +81,16 @@ def diagnose_cost_axis(rs: RolloutSet) -> dict:
             f"(> {MEAN_TAIL_WARN}). If task difficulty has polynomial tails the population "
             f"mean may not exist at all; treat any mean-cost frontier as unsupported."
         )
-    if not notes:
+    if complete_cost and len(notes) == 0:
         notes.append(
             "no cost-axis pathology detected in-sample; mean and median should broadly "
             "agree. Note this does not certify the mean — difficulty-tail divergence is "
             "not detectable at typical suite sizes, so median remains the safer default."
         )
 
-    if bias_risk > MEDIAN_BIAS_WARN and tail_ratio > MEAN_TAIL_WARN:
+    if not complete_cost:
+        recommend = "unavailable"
+    elif bias_risk > MEDIAN_BIAS_WARN and tail_ratio > MEAN_TAIL_WARN:
         recommend = "neither"
     elif tail_ratio > MEAN_TAIL_WARN:
         recommend = "median"

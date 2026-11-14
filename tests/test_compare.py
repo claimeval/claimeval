@@ -11,11 +11,20 @@ from pathlib import Path
 
 import numpy as np
 
+
+def test_legacy_module_aliases_resolve_to_modules():
+    from claimeval.compare import Scenario
+    from claimeval.simulate import Population
+
+    assert Scenario.__name__ == "Scenario"
+    assert Population.__name__ == "Population"
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from claimeval import Rollout, RolloutSet, make_population, sample_dataset  # noqa: E402
+from claimeval import Rollout, RolloutSet, make_population, population_truth, sample_dataset  # noqa: E402
 from claimeval.baselines import METHODS, run_method  # noqa: E402
+from claimeval.analysis.compare import Scenario, compare  # noqa: E402
 
 REAL = ROOT / "realdata"
 
@@ -34,6 +43,20 @@ def test_every_method_returns_the_same_shape():
         b = run_method(rs, m, B=50, rng=np.random.default_rng(0))
         assert b.acc.shape[1] == b.cost.shape[1] == rs.n_configs, m
         assert np.isfinite(b.acc).all() and np.isfinite(b.cost).all(), m
+
+
+def test_appending_methods_does_not_change_existing_comparison_rows():
+    pop = make_population(5, np.random.default_rng(4))
+    true_acc, true_cost = population_truth(pop)
+    scenario = Scenario(
+        "method-stream-regression",
+        lambda rng: RolloutSet(sample_dataset(pop, 24, 3, rng)),
+        true_acc,
+        true_cost,
+    )
+    prior = compare(scenario, METHODS[:9], reps=12, B=60, seed=17)
+    extended = compare(scenario, METHODS, reps=12, B=60, seed=17)
+    assert prior == extended[:9]
 
 
 def test_formula_standard_errors_match_the_textbook():

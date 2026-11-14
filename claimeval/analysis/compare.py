@@ -17,6 +17,7 @@ with certainty, which is what current practice does.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Callable
 
@@ -26,6 +27,19 @@ from .baselines import run_method
 from claimeval.sim.coverage import Calibration
 from claimeval.stats.frontier import dominance, pareto_mask
 from claimeval.core.schema import RolloutSet
+
+
+# These methods define the historical comparison stream. Later additions use
+# independent method streams so adding an estimator does not change the data or
+# Monte Carlo draws used by the existing rows.
+_LEGACY_SHARED_STREAM_METHODS = frozenset({
+    "naive", "wald", "paired_clt", "clustered_clt", "boot_both",
+    "boot_task", "boot_group", "boot_cluster", "boot_cluster_t",
+})
+
+
+def _stable_seed_part(value: str) -> int:
+    return int.from_bytes(hashlib.blake2s(value.encode("utf-8"), digest_size=4).digest(), "little")
 
 
 @dataclass
@@ -40,6 +54,11 @@ class Scenario:
 def compare(scenario: Scenario, methods, reps: int = 200, B: int = 800,
             thr: float = 0.9, level: float = 0.95, seed: int = 0) -> list[dict]:
     rng = np.random.default_rng(seed)
+    isolated_rngs = {
+        m: np.random.default_rng(np.random.SeedSequence(
+            [seed, _stable_seed_part(scenario.name), _stable_seed_part(m)]))
+        for m in methods if m not in _LEGACY_SHARED_STREAM_METHODS
+    }
     ta, tc = scenario.true_acc, scenario.true_cost
     true_dom = dominance(tc, ta)
     np.fill_diagonal(true_dom, False)
@@ -62,7 +81,8 @@ def compare(scenario: Scenario, methods, reps: int = 200, B: int = 800,
         np.fill_diagonal(naive_dom, False)
         naive_front = pareto_mask(c_hat, a_hat)
         for m in methods:
-            b = run_method(rs, m, B=B, rng=rng, cost_stat=scenario.cost_stat)
+            method_rng = rng if m in _LEGACY_SHARED_STREAM_METHODS else isolated_rngs[m]
+            b = run_method(rs, m, B=B, rng=method_rng, cost_stat=scenario.cost_stat)
             r = acc_names[m]
             if m != "naive":
                 alo, ahi = np.quantile(b.acc, [lo_q, hi_q], axis=0)

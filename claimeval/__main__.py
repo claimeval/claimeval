@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--boot", type=int, default=2000)
     a.add_argument("--threshold", type=float, default=0.90)
 
-    c = sub.add_parser("claims", help="test published claims (top1, pairwise, margin, "
+    c = sub.add_parser("claims", help="test published claims (top1, pairwise, margin, parity, "
                                       "cost_dominance, frontier) against a results dump")
     c.add_argument("path")
     c.add_argument("claims", help="JSON list of {kind, subject, comparators, margin, id}")
@@ -156,12 +156,12 @@ def main(argv: list[str] | None = None) -> int:
         cl = [Claim(x["kind"], x["subject"], x.get("comparators", []), x.get("margin", 0.0),
                     x.get("id", ""), x.get("k", 1)) for x in spec]
         res = evaluate_claims(rs, cl, n_boot=args.boot, mode=args.mode, rng=rng, thr=args.threshold)
-        print(f"{'id':<10}{'kind':<16}{'subject':<28}{'P(claim)':>9}  verdict")
+        print(f"{'id':<10}{'kind':<16}{'subject':<28}{'boot freq':>10}  verdict")
         for r in res:
             v = "supported" if r["supported"] else (
                 "NOT supported" if r["holds_at_point_estimate"] else "contradicted by point estimate")
-            print(f"{r['id'][:9]:<10}{r['kind']:<16}{r['subject'][:27]:<28}{r['probability']:>9.3f}  {v}")
-        print(f"\nsupported = P >= {args.threshold}; resampling: {res[0]['mode'] if res else '-'}")
+            print(f"{r['id'][:9]:<10}{r['kind']:<16}{r['subject'][:27]:<28}{r['bootstrap_support']:>10.3f}  {v}")
+        print(f"\nsupported = bootstrap frequency >= {args.threshold}; resampling: {res[0]['mode'] if res else '-'}")
         return 0
     if args.cmd == "analyze":
         report, _ = analyze(rs, n_boot=args.boot, threshold=args.threshold, rng=rng)

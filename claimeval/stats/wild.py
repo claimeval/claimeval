@@ -15,8 +15,10 @@ Two variants, both studentized with the CR1 cluster-robust standard error:
        set of theta0 not rejected at 5%, found on a grid (test inversion).
        MacKinnon & Webb recommend WCR for unequal clusters.
 
-With G <= 14 clusters all 2^G sign vectors are enumerated, so the bootstrap
-is exact; otherwise they are sampled. Statistics are linear in per-task
+With G <= 14 clusters all 2^G sign vectors are enumerated, so the finite
+sign-flip reference distribution is exhaustively evaluated; otherwise vectors
+are sampled. Exhaustive enumeration alone does not guarantee exact finite-sample
+coverage: that requires the relevant null sign-symmetry assumptions. Statistics are linear in per-task
 values z (accuracy, accuracy gaps, and median cost through its influence
 function), so each replicate costs one matrix product.
 

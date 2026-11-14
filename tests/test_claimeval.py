@@ -56,7 +56,7 @@ def test_hausdorff_symmetry_and_zero():
     assert abs(hausdorff(a, b) - hausdorff(b, a)) < 1e-12
 
 
-def test_ragged_cells_are_kept():
+def test_ragged_cells_count_as_accuracy_failures_and_keep_cost_unknown():
     rolls = [
         Rollout("a", "t1", "0", 1.0, 1.0),
         Rollout("a", "t1", "1", 0.0, 5.0),
@@ -67,7 +67,12 @@ def test_ragged_cells_are_kept():
     assert rs.counts.tolist() == [[2, 1], [1, 0]]
     acc, cost = rs.point_estimates()
     assert abs(acc[0] - 0.75) < 1e-12  # mean of task means: (0.5, 1.0)
+    assert acc[1] == 0.0  # the omitted t2 cell counts as unresolved
+    assert not rs.has_complete_cost(["b"])
     assert rs.coverage().tolist() == [1.0, 0.5]
+    boot = hierarchical_bootstrap(rs, 50, "both", np.random.default_rng(0))
+    assert np.all(boot.acc[:, rs.configs.index("b")] == 0.0)
+    assert rs.subsample_seeds(1, np.random.default_rng(0)).point_estimates()[0][1] == 0.0
 
 
 def test_cost_per_success_infinite_when_never_solves():
@@ -166,13 +171,18 @@ def test_ingest_task_keyed_dict_shape():
 
 
 def test_ingest_counts_dropped_records():
-    recs = [{"task_id": "t1", "score": 1, "cost": 1.0}, {"task_id": "t2", "score": 1}]
+    recs = [
+        {"task_id": "t1", "score": 1, "cost": 1.0},
+        {"task_id": "t2", "score": 1},
+        {"task_id": "t3", "score": 1.2, "cost": 1.0},
+        {"task_id": "t4", "score": 1, "cost": float("inf")},
+    ]
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "r.jsonl"
         p.write_text("\n".join(json.dumps(r) for r in recs))
         fmap = guess_map(inspect_path(p)["keys"])
         _, dropped = load(p, fmap)
-        assert dropped == {"no_cost": 1}
+        assert dropped == {"no_cost": 1, "invalid_success": 1, "invalid_cost": 1}
 
 
 def test_population_truth_matches_sampler():
@@ -295,6 +305,30 @@ def test_auto_mode_picks_group_only_when_clustered():
     )
     assert clustered.is_clustered and auto_mode(clustered) == "cluster_t"
     assert clustered.n_groups == 2
+    one_group = RolloutSet([Rollout("a", f"t{i}", "0", 1.0, 1.0, group="all")
+                            for i in range(4)])
+    assert auto_mode(one_group) == "task"
+
+
+def test_bootstrap_rejects_invalid_mode_and_invalid_settings():
+    import pytest
+
+    rs = RolloutSet([Rollout("a", "t1", "0", 1.0, 1.0)])
+    with pytest.raises(ValueError, match="mode"):
+        hierarchical_bootstrap(rs, 10, "taks")
+    with pytest.raises(ValueError, match="n_boot"):
+        hierarchical_bootstrap(rs, 0)
+    with pytest.raises(ValueError, match="cost_stat"):
+        hierarchical_bootstrap(rs, 10, cost_stat="bogus")
+
+
+def test_cluster_bootstrap_requires_multiple_groups():
+    import pytest
+
+    rs = RolloutSet([Rollout("a", f"t{i}", "0", 1.0, 1.0, group="all")
+                     for i in range(4)])
+    with pytest.raises(ValueError, match="at least two groups"):
+        hierarchical_bootstrap(rs, 10, "cluster_t")
 
 
 def test_cost_axis_diagnostic_flags_median_bias_regime():
@@ -425,12 +459,78 @@ def test_claims_kinds_consistent():
         Claim("top1", "weak", ["strong", "cheap"], id="top")], n_boot=1000)}
     assert r["front"]["probability"] < 0.1 and r["top"]["probability"] == 0.0
     assert r["margin"]["probability"] == 0.0, "a 90-point margin cannot hold"
+    parity = evaluate_claims(rs, [Claim("parity", "strong", ["cheap"], margin=0.0)])[0]
+    equivalent = evaluate_claims(rs, [Claim("equivalent", "strong", ["cheap"], margin=0.0)])[0]
+    assert parity["probability"] == equivalent["probability"]
     try:
         Claim("best", "a")
     except ValueError:
         pass
     else:
         raise AssertionError("unknown kind accepted")
+
+
+def test_cost_dominance_requires_a_strict_improvement():
+    from claimeval.claims import Claim, claim_probability
+
+    idx = {"a": 0, "b": 1, "c": 2}
+    acc = np.array([[0.8, 0.8, 0.9]])
+    cost = np.array([[1.0, 1.0, 2.0]])
+    claim = Claim("cost_dominance", "a", ["b"])
+    assert claim_probability(acc, cost, claim, idx).tolist() == [False]
+    better_accuracy = Claim("cost_dominance", "c", ["a"])
+    assert claim_probability(acc, cost, better_accuracy, idx).tolist() == [False]
+    cheaper = Claim("cost_dominance", "a", ["c"])
+    assert claim_probability(acc, cost, cheaper, idx).tolist() == [False]
+    dominates = Claim("cost_dominance", "a", ["c"])
+    acc[0, 0] = 1.0
+    assert claim_probability(acc, cost, dominates, idx).tolist() == [True]
+
+
+def test_rollout_validates_scores_and_costs_but_allows_missing_cost():
+    import pytest
+
+    with pytest.raises(ValueError, match="success"):
+        Rollout("a", "t", "0", 1.1, 1.0)
+    with pytest.raises(ValueError, match="success"):
+        Rollout("a", "t", "0", float("nan"), 1.0)
+    with pytest.raises(ValueError, match="cost"):
+        Rollout("a", "t", "0", 1.0, float("inf"))
+    with pytest.raises(ValueError, match="cost"):
+        Rollout("a", "t", "0", 1.0, -0.1)
+    # Existing leaderboard adapters use NaN for unreported cost and zero in
+    # source formats that encode missing cost as zero.
+    Rollout("a", "t", "0", 1.0, float("nan"))
+    Rollout("a", "t", "0", 1.0, 0.0)
+
+
+def test_claim_rejects_invalid_parameters_and_unavailable_cost():
+    import pytest
+    from claimeval.claims import Claim, evaluate_claims
+
+    with pytest.raises(ValueError, match="comparator"):
+        Claim("top1", "a")
+    with pytest.raises(ValueError, match="k"):
+        Claim("topk", "a", ["b"], k=0)
+    with pytest.raises(ValueError, match="margin"):
+        Claim("parity", "a", ["b"], margin=-0.1)
+    rs = RolloutSet([Rollout("a", "t1", "0", 1.0, float("nan")),
+                     Rollout("b", "t1", "0", 0.0, 1.0)])
+    with pytest.raises(ValueError, match="complete finite cost coverage"):
+        evaluate_claims(rs, [Claim("cost_dominance", "a", ["b"])])
+
+
+def test_evaluate_claims_validates_threshold_and_replicate_count():
+    import pytest
+    from claimeval.claims import Claim, evaluate_claims
+
+    rs = RolloutSet([Rollout("a", "t1", "0", 1.0, 1.0),
+                     Rollout("b", "t1", "0", 0.0, 2.0)])
+    claim = [Claim("pairwise", "a", ["b"])]
+    with pytest.raises(ValueError, match="thr"):
+        evaluate_claims(rs, claim, thr=1.1)
+    with pytest.raises(ValueError, match="n_boot"):
+        evaluate_claims(rs, claim, n_boot=0)
 
 
 def test_adapters_read_public_formats():
@@ -458,6 +558,13 @@ def test_adapters_read_public_formats():
             for t in ("1", "2") for k in range(3)]}))
         rs, sk = adapters.tau2([f])
         assert rs.max_seeds == 3 and rs.point_estimates()[0][0] == 0.5 and not sk
+        f_zero = td / "m_zero.json"
+        f_zero.write_text(json.dumps({"simulations": [
+            {"task_id": "t1", "trial": "0", "reward_info": {"reward": 1.0}, "agent_cost": 0},
+            {"task_id": "t2", "trial": "0", "reward_info": {"reward": 0.0}, "agent_cost": 0},
+        ]}))
+        rs, sk = adapters.tau2([f_zero])
+        assert "m_zero" in sk and np.isnan(rs.cost).all()
         # Harbor (Terminal-Bench) layout: <sub>/<job>/<trial>/result.json
         for i, rew in enumerate((1.0, None)):
             p = td / "tb" / "agentX" / "job1" / f"t{i}"

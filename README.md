@@ -1,7 +1,7 @@
 # claimeval
 
 [![PyPI version](https://img.shields.io/pypi/v/claimeval)](https://pypi.org/project/claimeval/)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23669069.svg)](https://doi.org/10.5281/zenodo.23669069)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23669068.svg)](https://doi.org/10.5281/zenodo.23669068)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
@@ -13,7 +13,7 @@ Leaderboards, press releases, and papers declare:
 * *"System A matches System B at a fifth of the cost"*
 * *"Agent A is Pareto-optimal on the cost–accuracy frontier"*
 
-Each of these is a statement about noisy sample estimates from a finite benchmark of tasks and runs. `claimeval` attaches a probability to each such claim, using a bootstrap over the correct unit of generalization, and reports whether it is statistically supported.
+Each of these is a statement about noisy sample estimates from a finite benchmark of tasks and runs. `claimeval` reports the fraction of bootstrap replicates in which each claim holds, resampling the chosen unit of generalization. This is a bootstrap support measure, not a posterior probability that the claim is true.
 
 ---
 
@@ -47,13 +47,17 @@ claimeval claims examples/runs.jsonl examples/claims.json --map examples/map.jso
 
 **Output:**
 ```
-id        kind            subject                      P(claim)  verdict
+id        kind            subject                      boot freq  verdict
 c1        top1            agent-E                         0.960  supported
 c2        pairwise        agent-D                         0.996  supported
 c3        cost_dominance  agent-D                         0.717  NOT supported
 c4        frontier        agent-A                         0.993  supported
-supported = P >= 0.9; resampling: task
+supported = bootstrap frequency >= 0.9; resampling: task
 ```
+
+The displayed frequency is the fraction of bootstrap replicates in which the
+claim holds. It is a bootstrap support measure, not a posterior probability
+that the claim is true given the observed data.
 
 ### Claim Definitions (`claims.json`)
 
@@ -92,10 +96,10 @@ Supported claim types:
 * `top1`: The subject strictly leads all comparators.
 * `topk`: The subject ranks within the top $k$ systems.
 * `pairwise`: The subject strictly outperforms named rivals.
-* `parity`: Performance difference is within a threshold ($|a_c - a_f| \le \delta$).
+* `parity` (also `equivalent`): Performance difference is within a threshold ($|a_c - a_f| \le \delta$).
 * `cheaper_noninferior`: Subject is cheaper than rival and accuracy is within parity margin.
 * `frontier`: Subject belongs to the non-dominated Pareto frontier.
-* `cost_dominance`: Subject is both strictly cheaper and more accurate than rival.
+* `cost_dominance`: Subject is no more costly and at least as accurate as rival, with at least one strict improvement.
 
 ---
 
@@ -117,7 +121,7 @@ claims = [Claim("pairwise", subject="agent-A", comparators=["agent-B"])]
 results = evaluate_claims(dataset, claims, threshold=0.9, n_boot=2000)
 
 for r in results:
-    print(f"Claim {r['id']}: P = {r['probability']:.3f} -> {r['verdict']}")
+    print(f"Claim {r['id']}: bootstrap support = {r['bootstrap_support']:.3f} -> {r['verdict']}")
 ```
 
 ---
@@ -157,19 +161,35 @@ claimeval claims tau2_results/ claims.json --from tau2
 
 ## 📖 Citation & Research Paper
 
-If you use `claimeval` in your research, please cite our paper:
+If you use `claimeval` in your research, please cite the relevant paper:
 
-> **Cost-Accuracy Frontiers for LLM Agents Are Estimated, Not Observed**  
-> Harish Mashetty (2026)  
-> DOI: [10.5281/zenodo.23669069](https://doi.org/10.5281/zenodo.23669069)
+> **Claim-Level Evaluation for AI Agents: Most Published Claims Do Not Survive Their Own Data**
+> Harish Mashetty (2026)
+> DOI: [10.5281/zenodo.24214791](https://doi.org/10.5281/zenodo.24214791)
+
+```bibtex
+@article{mashetty2026claimlevel,
+  title   = {Claim-Level Evaluation for AI Agents: Most Published Claims Do Not Survive Their Own Data},
+  author  = {Mashetty, Harish},
+  year    = {2026},
+  doi     = {10.5281/zenodo.24214791},
+  url     = {https://doi.org/10.5281/zenodo.24214791}
+}
+```
+
+For work specifically about cost–accuracy frontiers, cite:
+
+> **Cost-Accuracy Frontiers for LLM Agents Are Estimated, Not Observed**
+> Harish Mashetty (2026)
+> DOI: [10.5281/zenodo.23669068](https://doi.org/10.5281/zenodo.23669068)
 
 ```bibtex
 @article{mashetty2026costaccuracy,
   title   = {Cost-Accuracy Frontiers for LLM Agents Are Estimated, Not Observed},
   author  = {Mashetty, Harish},
   year    = {2026},
-  doi     = {10.5281/zenodo.23669069},
-  url     = {https://doi.org/10.5281/zenodo.23669069}
+  doi     = {10.5281/zenodo.23669068},
+  url     = {https://doi.org/10.5281/zenodo.23669068}
 }
 ```
 

@@ -10,6 +10,7 @@ decrypted JSON, not the encrypted upload archives.
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,10 +180,16 @@ def load(path: str | Path, fmap: FieldMap, strict: bool = False) -> tuple[Rollou
         if succ is None:
             dropped["no_success"] += 1
             continue
+        if not math.isfinite(succ) or not 0.0 <= succ <= 1.0:
+            dropped["invalid_success"] += 1
+            continue
         try:
             cost = float(cost)
         except (TypeError, ValueError):
             dropped["no_cost"] += 1
+            continue
+        if math.isinf(cost) or cost < 0:
+            dropped["invalid_cost"] += 1
             continue
 
         if fmap.seed and rec.get(fmap.seed) is not None:

@@ -27,12 +27,18 @@ def split_sample_debias(
     and the function says so rather than returning a number that looks like one.
     """
     rng = rng or np.random.default_rng(0)
-    usable = rs.counts[rs.counts > 0]
+    if not rs.has_complete_cost():
+        return {
+            "available": False,
+            "reason": "winner's-curse estimation selects frontier members and requires "
+            "complete finite cost coverage",
+        }
+    usable = rs.counts
     if usable.size == 0 or usable.min() < 2:
         return {
             "available": False,
-            "reason": "needs >= 2 seeds per cell; single-seed runs cannot "
-            "separate selection from estimation",
+            "reason": "needs >= 2 seeds in every config/task cell; missing or "
+            "single-seed cells cannot separate selection from estimation",
         }
 
     acc_gap, cost_gap, n_sel = [], [], []
@@ -104,6 +110,8 @@ def seed_count_curve(
     reference is the full-seed estimate, which is itself noisy — so read the
     numbers as "error relative to a much better estimate", not absolute truth.
     """
+    if not rs.has_complete_cost():
+        raise ValueError("seed-count frontier analysis requires complete finite cost coverage")
     rng = rng or np.random.default_rng(0)
     acc_ref, cost_ref = rs.point_estimates()
     ref_mask = pareto_mask(cost_ref, acc_ref)
